@@ -37,10 +37,10 @@ def main() -> None:
         help="Number of personas to generate (default: 10)",
     )
     parser.add_argument(
-        "--events-per-persona",
+        "--days",
         type=int,
-        default=500,
-        help="Target events per persona (default: 500)",
+        default=7,
+        help="Number of days to simulate (default: 7)",
     )
     parser.add_argument(
         "--seed",
@@ -65,7 +65,7 @@ def main() -> None:
     print(f"\n=== Bloomberg NLP Tax Data Generator ===")
     print(f"Model: {args.model}")
     print(f"Personas: {args.num_personas}")
-    print(f"Events per persona: {args.events_per_persona}")
+    print(f"Days to simulate: {args.days}")
     print(f"Random seed: {args.seed}")
     print(f"Output: {args.output}\n")
 
@@ -73,13 +73,11 @@ def main() -> None:
     personas = generate_personas(client, num_personas=args.num_personas, model=args.model)
     print(f"  -> {len(personas)} personas generated\n")
 
-    print("Phase 2/3: Simulating events...")
+    print("Phase 2/3: Simulating events (workflow-driven, day-based)...")
     rows = simulate_events(
-        client,
         personas,
-        events_per_persona=args.events_per_persona,
+        num_days=args.days,
         seed=args.seed,
-        model=args.model,
     )
     print(f"  -> {len(rows)} total events generated\n")
 
@@ -94,6 +92,7 @@ def main() -> None:
             "event_type": r.event_type,
             "event_time": r.event_time,
             "session_id": r.session_id,
+            "workflow_type": r.workflow_type,
             "device_type": r.device_type,
             "os_name": r.os_name,
             "platform": r.platform,
@@ -112,9 +111,10 @@ def main() -> None:
     print(f"\n=== Summary ===")
     print(f"Personas generated : {len(personas)}")
     for p in personas:
-        print(f"  {p.user_id if hasattr(p, 'user_id') else '?':>8}  {p.archetype:<30}  {p.name}  ({p.firm}, {p.city})")
+        print(f"  {p.archetype:<30} {p.activity_level:<11}  {p.name}  ({p.firm}, {p.city})")
 
     print(f"\nTotal events       : {len(rows)}")
+    print(f"Unique sessions    : {len({r.session_id for r in rows})}")
     if rows:
         times = sorted(r.event_time for r in rows)
         print(f"Date range         : {times[0]} -> {times[-1]}")
@@ -123,6 +123,14 @@ def main() -> None:
     print("\nEvent type distribution:")
     for event_type, count in sorted(event_counts.items(), key=lambda x: -x[1]):
         print(f"  {event_type:<25} {count:>6}")
+
+    workflow_counts = Counter(r.workflow_type for r in rows)
+    print("\nWorkflow distribution (sessions):")
+    workflow_sessions: dict[str, set] = {}
+    for r in rows:
+        workflow_sessions.setdefault(r.workflow_type, set()).add(r.session_id)
+    for wf, sess_set in sorted(workflow_sessions.items(), key=lambda x: -len(x[1])):
+        print(f"  {wf:<30} {len(sess_set):>5} sessions")
 
     print(f"\nOutput written to  : {output_path.resolve()}")
 

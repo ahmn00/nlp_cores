@@ -61,6 +61,27 @@ ARCHETYPE_SEEDS = [
 ]
 
 
+ACTIVITY_DEFAULTS: dict[str, dict] = {
+    "power_user": {"days_active_per_week": 6, "avg_sessions_per_active_day": 4},
+    "regular":    {"days_active_per_week": 4, "avg_sessions_per_active_day": 2},
+    "occasional": {"days_active_per_week": 2, "avg_sessions_per_active_day": 1},
+    "inactive":   {"days_active_per_week": 1, "avg_sessions_per_active_day": 1},
+}
+
+ARCHETYPE_ACTIVITY_HINTS: dict[str, str] = {
+    "senior_tax_partner": "power_user",
+    "junior_tax_associate": "regular",
+    "inhouse_tax_counsel": "regular",
+    "tax_research_analyst": "power_user",
+    "ma_tax_specialist": "power_user",
+    "transfer_pricing_specialist": "regular",
+    "tax_technology_manager": "occasional",
+    "compliance_officer": "regular",
+    "tax_litigator": "regular",
+    "estate_planning_attorney": "occasional",
+}
+
+
 @dataclass
 class Persona:
     archetype: str
@@ -73,6 +94,9 @@ class Persona:
     behavior_traits: dict
     search_topics: list[str]
     event_weights: dict[str, float]
+    activity_level: str = "regular"
+    days_active_per_week: int = 4
+    avg_sessions_per_active_day: int = 2
 
 
 def generate_personas(
@@ -80,11 +104,12 @@ def generate_personas(
     num_personas: int = 10,
     model: str = "gpt-4o-mini",
 ) -> list[Persona]:
-    seeds = ARCHETYPE_SEEDS[:num_personas]
     personas = []
-    for seed in seeds:
-        print(f"  Generating persona: {seed['archetype']}...")
-        persona = _generate_single_persona(client, seed, model)
+    for i in range(num_personas):
+        seed = ARCHETYPE_SEEDS[i % len(ARCHETYPE_SEEDS)]
+        instance = i // len(ARCHETYPE_SEEDS)
+        print(f"  Generating persona {i+1}/{num_personas}: {seed['archetype']} (instance {instance + 1})...")
+        persona = _generate_single_persona(client, seed, model, instance=instance)
         personas.append(persona)
     return personas
 
@@ -93,14 +118,23 @@ def _generate_single_persona(
     client: OpenAI,
     seed: dict,
     model: str,
+    instance: int = 0,
 ) -> Persona:
     event_types_str = ", ".join(EVENT_TYPES)
+
+    activity_hint = ARCHETYPE_ACTIVITY_HINTS.get(seed["archetype"], "regular")
+    variation_note = (
+        f"\nThis is instance #{instance + 1} of this archetype — generate a DIFFERENT person "
+        f"(different name, firm, city, years of experience) than other instances of the same archetype."
+        if instance > 0 else ""
+    )
 
     prompt = f"""You are generating a realistic synthetic user profile for a Bloomberg Terminal user in the tax and legal domain.
 
 Archetype: {seed['archetype']}
 Organization type: {seed['org_type']}
 Description: {seed['description']}
+Suggested activity level for this archetype: {activity_hint}{variation_note}
 
 Return a JSON object with exactly these fields:
 {{
@@ -120,23 +154,20 @@ Return a JSON object with exactly these fields:
     "mix of specific (case names, IRS ruling numbers) and broad topics"
   ],
   "event_weights": {{
-    "session_start": <float>,
-    "session_end": <float>,
-    "screen_view": <float>,
-    "search_query": <float>,
-    "document_view": <float>,
-    "document_download": <float>,
-    "news_view": <float>,
-    "alert_create": <float>,
-    "alert_delete": <float>,
-    "data_export": <float>,
-    "function_run": <float>,
-    "annotation_add": <float>,
+    "session_start": <float>, "session_end": <float>,
+    "screen_view": <float>, "search_query": <float>,
+    "document_view": <float>, "document_download": <float>,
+    "news_view": <float>, "alert_create": <float>,
+    "alert_delete": <float>, "data_export": <float>,
+    "function_run": <float>, "annotation_add": <float>,
     "contact_lookup": <float>
-  }}
+  }},
+  "activity_level": "power_user|regular|occasional|inactive"
 }}
 
 For event_weights: values are relative frequencies (they will be normalized). Higher values mean this person does that action more. session_start and session_end should always be 1.0. Tailor other weights to the archetype's role.
+
+For activity_level: pick the level that best matches this archetype's real-world Bloomberg usage. Most users should be "regular"; only the most intense data-driven roles (senior partners, M&A specialists, research analysts) are "power_user"; admin/support roles are "occasional"; rarely-active users are "inactive".
 
 Return only valid JSON, no markdown fences, no explanation."""
 
@@ -160,6 +191,11 @@ Return only valid JSON, no markdown fences, no explanation."""
     for et in EVENT_TYPES:
         normalized_weights.setdefault(et, 0.01)
 
+    activity_level = data.get("activity_level", activity_hint)
+    if activity_level not in ACTIVITY_DEFAULTS:
+        activity_level = activity_hint
+    activity_cfg = ACTIVITY_DEFAULTS[activity_level]
+
     return Persona(
         archetype=seed["archetype"],
         org_type=seed["org_type"],
@@ -171,4 +207,7 @@ Return only valid JSON, no markdown fences, no explanation."""
         behavior_traits=data.get("behavior_traits", {}),
         search_topics=data.get("search_topics", []),
         event_weights=normalized_weights,
+        activity_level=activity_level,
+        days_active_per_week=activity_cfg["days_active_per_week"],
+        avg_sessions_per_active_day=activity_cfg["avg_sessions_per_active_day"],
     )
