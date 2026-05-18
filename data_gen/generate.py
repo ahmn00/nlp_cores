@@ -17,6 +17,7 @@ from openai import OpenAI
 
 load_dotenv()
 
+from .config import CONFIG
 from .personas import generate_personas
 from .simulator import simulate_events
 
@@ -27,31 +28,37 @@ def main() -> None:
     )
     parser.add_argument(
         "--output",
-        default="data_gen/output/amplitude_events.csv",
-        help="Output CSV path (default: data_gen/output/amplitude_events.csv)",
+        default=CONFIG.output_path,
+        help=f"Output CSV path (default from config: {CONFIG.output_path})",
     )
     parser.add_argument(
         "--num-personas",
         type=int,
-        default=10,
-        help="Number of personas to generate (default: 10)",
+        default=CONFIG.num_personas,
+        help=f"Number of personas (default from config: {CONFIG.num_personas}). Cycles archetypes when > 10.",
     )
     parser.add_argument(
         "--days",
         type=int,
-        default=7,
-        help="Number of days to simulate (default: 7)",
+        default=CONFIG.num_days,
+        help=f"Number of days to simulate (default from config: {CONFIG.num_days})",
+    )
+    parser.add_argument(
+        "--distinct-only",
+        action="store_true",
+        default=CONFIG.distinct_personas_only,
+        help="Cap personas at the number of unique archetypes (10), no cycling.",
     )
     parser.add_argument(
         "--seed",
         type=int,
-        default=42,
-        help="Random seed for reproducibility (default: 42)",
+        default=CONFIG.seed,
+        help=f"Random seed (default from config: {CONFIG.seed})",
     )
     parser.add_argument(
         "--model",
-        default="gpt-4o-mini",
-        help="OpenAI model to use (default: gpt-4o-mini)",
+        default=CONFIG.model,
+        help=f"OpenAI model (default from config: {CONFIG.model})",
     )
     args = parser.parse_args()
 
@@ -70,7 +77,12 @@ def main() -> None:
     print(f"Output: {args.output}\n")
 
     print("Phase 1/3: Generating personas via OpenAI API...")
-    personas = generate_personas(client, num_personas=args.num_personas, model=args.model)
+    personas = generate_personas(
+        client,
+        num_personas=args.num_personas,
+        model=args.model,
+        distinct_only=args.distinct_only,
+    )
     print(f"  -> {len(personas)} personas generated\n")
 
     print("Phase 2/3: Simulating events (workflow-driven, day-based)...")

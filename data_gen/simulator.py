@@ -13,6 +13,7 @@ import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from .config import CONFIG
 from .personas import Persona
 from .workflows import (
     WORKFLOWS,
@@ -48,7 +49,10 @@ def simulate_events(
 ) -> list[EventRow]:
     rng = random.Random(seed)
     if end_date is None:
-        end_date = datetime(2026, 5, 16, tzinfo=timezone.utc)
+        if CONFIG.end_date:
+            end_date = datetime.fromisoformat(CONFIG.end_date).replace(tzinfo=timezone.utc)
+        else:
+            end_date = datetime(2026, 5, 16, tzinfo=timezone.utc)
     start_date = end_date - timedelta(days=num_days - 1)
 
     all_rows: list[EventRow] = []
@@ -87,11 +91,12 @@ def _simulate_persona(
     for day_offset in range(num_days):
         day = start_date + timedelta(days=day_offset)
         is_weekday = day.weekday() < 5
-        active_prob = min(1.0, base_daily_prob * (1.5 if is_weekday else 0.2))
+        multiplier = CONFIG.weekday_active_multiplier if is_weekday else CONFIG.weekend_active_multiplier
+        active_prob = min(1.0, base_daily_prob * multiplier)
         if rng.random() >= active_prob:
             continue
 
-        num_sessions = max(1, int(rng.gauss(persona.avg_sessions_per_active_day, 1.0)))
+        num_sessions = max(1, int(rng.gauss(persona.avg_sessions_per_active_day, CONFIG.sessions_per_day_stddev)))
         for _ in range(num_sessions):
             workflow = _pick_workflow(workflows, persona.activity_level, rng)
             session_id = _make_session_id(user_id, session_idx)
@@ -228,7 +233,7 @@ def _generate_event_properties(
 
     if event_type == "session_end":
         return {
-            "duration_seconds": int(rng.lognormvariate(6.5, 1.0)),
+            "duration_seconds": int(rng.lognormvariate(CONFIG.session_duration_mu, CONFIG.session_duration_sigma)),
             "logout_type": rng.choice(["manual", "timeout", "idle"]),
         }
 
@@ -349,8 +354,8 @@ def _make_session_id(user_id: str, session_idx: int) -> int:
 
 
 def _inter_event_delay(rng: random.Random) -> float:
-    delay = rng.lognormvariate(mu=3.5, sigma=1.0)
-    return max(5.0, min(delay, 600.0))
+    delay = rng.lognormvariate(mu=CONFIG.inter_event_delay_mu, sigma=CONFIG.inter_event_delay_sigma)
+    return max(CONFIG.inter_event_delay_min_s, min(delay, CONFIG.inter_event_delay_max_s))
 
 
 def _pick_time_within_day(

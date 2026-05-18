@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from openai import OpenAI
 
+from .config import CONFIG
 from .events import EVENT_TYPES
 
 
@@ -61,25 +62,8 @@ ARCHETYPE_SEEDS = [
 ]
 
 
-ACTIVITY_DEFAULTS: dict[str, dict] = {
-    "power_user": {"days_active_per_week": 6, "avg_sessions_per_active_day": 4},
-    "regular":    {"days_active_per_week": 4, "avg_sessions_per_active_day": 2},
-    "occasional": {"days_active_per_week": 2, "avg_sessions_per_active_day": 1},
-    "inactive":   {"days_active_per_week": 1, "avg_sessions_per_active_day": 1},
-}
-
-ARCHETYPE_ACTIVITY_HINTS: dict[str, str] = {
-    "senior_tax_partner": "power_user",
-    "junior_tax_associate": "regular",
-    "inhouse_tax_counsel": "regular",
-    "tax_research_analyst": "power_user",
-    "ma_tax_specialist": "power_user",
-    "transfer_pricing_specialist": "regular",
-    "tax_technology_manager": "occasional",
-    "compliance_officer": "regular",
-    "tax_litigator": "regular",
-    "estate_planning_attorney": "occasional",
-}
+ACTIVITY_DEFAULTS = CONFIG.activity_defaults
+ARCHETYPE_ACTIVITY_HINTS = CONFIG.archetype_activity_hints
 
 
 @dataclass
@@ -103,7 +87,12 @@ def generate_personas(
     client: OpenAI,
     num_personas: int = 10,
     model: str = "gpt-4o-mini",
+    distinct_only: bool = False,
 ) -> list[Persona]:
+    if distinct_only and num_personas > len(ARCHETYPE_SEEDS):
+        print(f"  [distinct_personas_only=True] capping {num_personas} -> {len(ARCHETYPE_SEEDS)}")
+        num_personas = len(ARCHETYPE_SEEDS)
+
     personas = []
     for i in range(num_personas):
         seed = ARCHETYPE_SEEDS[i % len(ARCHETYPE_SEEDS)]
@@ -173,7 +162,7 @@ Return only valid JSON, no markdown fences, no explanation."""
 
     response = client.chat.completions.create(
         model=model,
-        max_tokens=1024,
+        max_tokens=CONFIG.max_tokens_per_persona,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
